@@ -11,7 +11,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.repository.ReactiveMongoRepository;
-import org.springframework.data.repository.CrudRepository;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,7 +21,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.util.function.Tuple2;
 
-import java.awt.*;
 import java.time.Duration;
 import java.util.Date;
 import java.util.Random;
@@ -40,8 +38,8 @@ public class Spring5Application {
 	@Bean
     CommandLineRunner demo(MovieRepository repository) {
 	    return args -> repository.deleteAll()
-        .subscribe(null, null, arg -> {
-            Stream.of("Game of throne", "Enter Mono<Void>", "Winter is coming", "Chao isn't a bitch", "Back to the future")
+        .subscribe(null, null, () -> {
+            Stream.of("Game of throne", "Enter Mono<Void>", "Winter is coming", "Chaos isn't a bitch", "Back to the future")
                     .map(name -> new Movie(UUID.randomUUID().toString(), name, randomGenre()))
                     .forEach(movie -> repository.save(movie).subscribe(System.out::println));
 
@@ -56,21 +54,12 @@ public class Spring5Application {
 
 }
 
-@Data
-@ToString
-@AllArgsConstructor
-@NoArgsConstructor
-class MovieEvent {
-    private Movie movie;
-    private Date when;
-    private String user;
-}
 
 @Service
-class FluxFlixService {
+class MovieService {
     private final MovieRepository movieRepository;
 
-    public FluxFlixService(MovieRepository movieRepository) {
+    public MovieService(MovieRepository movieRepository) {
         this.movieRepository = movieRepository;
     }
 
@@ -82,7 +71,7 @@ class FluxFlixService {
                 .map(Tuple2::getT2);
     }
 
-    private Object randomUser() {
+    private String randomUser() {
         String[] user = "John Snow,Arya Stark,Daenerys Targaryen,Theon Greyjoy".split(",");
         return user[new Random().nextInt(user.length)];
     }
@@ -97,34 +86,48 @@ class FluxFlixService {
 }
 
 @RestController
-@RequestMapping("/movie")
+@RequestMapping("/movies")
 class MovieRestController {
-    private final FluxFlixService fluxFlixService;
+    private final MovieService movieService;
 
-    public MovieRestController(FluxFlixService fluxFlixService) {
-        this.fluxFlixService = fluxFlixService;
+    public MovieRestController(MovieService movieService) {
+        this.movieService = movieService;
     }
 
-    @GetMapping(value = "/{id}/event", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @GetMapping(value = "/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<MovieEvent> events(@PathVariable  String id) {
-        return this.fluxFlixService.byId(id)
-                .flatMap(fluxFlixService::streamStreams);
+        return this.movieService.byId(id).flatMapMany(this.movieService::streamStreams);
     }
+
+    @GetMapping
     public Flux<Movie> all() {
-        return this.fluxFlixService.all();
+        return this.movieService.all();
     }
 
     @GetMapping("/{id}")
     public Mono<Movie> byId(@PathVariable  String id) {
-        return this.fluxFlixService.byId(id);
+        return this.movieService.byId(id);
     }
 }
+
 interface MovieRepository extends ReactiveMongoRepository<Movie, String> {
 
 }
 
+@Data
+@ToString
+@AllArgsConstructor
+@NoArgsConstructor
+class MovieEvent {
+    private Movie movie;
+    private Date when;
+    private String user;
+}
+
+
 @Document
 @AllArgsConstructor
+@NoArgsConstructor
 @ToString
 @Data
 class Movie {
