@@ -15,8 +15,8 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.server.RouterFunction;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.util.function.Tuple2;
@@ -27,23 +27,59 @@ import java.util.Random;
 import java.util.UUID;
 import java.util.stream.Stream;
 
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+import static org.springframework.web.reactive.function.server.ServerResponse.ok;
+
 
 @SpringBootApplication
 public class Spring5Application {
 
-	public static void main(String[] args) {
-		SpringApplication.run(Spring5Application.class, args);
-	}
+    public static void main(String[] args) {
+        SpringApplication.run(Spring5Application.class, args);
+    }
 
-	@Bean
+    @Bean
+    WebClient client() {
+        return WebClient.create();
+    }
+
+    @Bean
+    CommandLineRunner demoClient(WebClient client) {
+        return args -> {
+            client.get()
+                    .uri("http://localhost:8080/movies")
+                    .retrieve()
+                    .bodyToFlux(Movie.class)
+                    .filter(movie -> movie.getTitle().toLowerCase().contains("Game"))
+                    .flatMap(movie -> client.get().uri("http://localhost:8080/movies/{id}/events", movie.getId())
+                            .retrieve().bodyToFlux(MovieEvent.class))
+                    .subscribe(System.out::println);
+        };
+    }
+
+    @Bean
+    RouterFunction routes(MovieService service) {
+        return route(GET("/movies"), req -> ok().body(service.all(), Movie.class))
+                .andRoute(GET("/movies/{id}"),
+                        req -> ok().body(service.byId(req.pathVariable("id")), Movie.class))
+                .andRoute(GET("/movies/{id}/events"),
+                        req -> ok()
+                                .contentType(MediaType.TEXT_EVENT_STREAM)
+                                .body(service.byId(req.pathVariable("id"))
+                                        .flatMapMany(service::streamStreams), MovieEvent.class));
+
+    }
+
+    @Bean
     CommandLineRunner demo(MovieRepository repository) {
-	    return args -> repository.deleteAll()
-        .subscribe(null, null, () -> {
-            Stream.of("Game of throne", "Enter Mono<Void>", "Winter is coming", "Chaos isn't a bitch", "Back to the future")
-                    .map(name -> new Movie(UUID.randomUUID().toString(), name, randomGenre()))
-                    .forEach(movie -> repository.save(movie).subscribe(System.out::println));
+        return args -> repository.deleteAll()
+                .subscribe(null, null, () -> {
+                    Stream.of("Game of throne", "Enter Mono<Void>", "Winter is coming", "Chaos isn't a bitch", "Back to the future")
+                            .map(name -> new Movie(UUID.randomUUID().toString(), name, randomGenre()))
+                            .forEach(movie -> repository.save(movie).subscribe(System.out::println));
 
-        });
+                });
 
     }
 
@@ -85,8 +121,8 @@ class MovieService {
     }
 }
 
-@RestController
-@RequestMapping("/movies")
+//@RestController
+//@RequestMapping("/movies")
 class MovieRestController {
     private final MovieService movieService;
 
@@ -95,7 +131,7 @@ class MovieRestController {
     }
 
     @GetMapping(value = "/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<MovieEvent> events(@PathVariable  String id) {
+    public Flux<MovieEvent> events(@PathVariable String id) {
         return this.movieService.byId(id).flatMapMany(this.movieService::streamStreams);
     }
 
@@ -105,13 +141,12 @@ class MovieRestController {
     }
 
     @GetMapping("/{id}")
-    public Mono<Movie> byId(@PathVariable  String id) {
+    public Mono<Movie> byId(@PathVariable String id) {
         return this.movieService.byId(id);
     }
 }
 
 interface MovieRepository extends ReactiveMongoRepository<Movie, String> {
-
 }
 
 @Data
