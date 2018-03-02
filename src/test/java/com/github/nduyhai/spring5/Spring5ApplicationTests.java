@@ -1,4 +1,4 @@
-package com.nduyhai.spring5;
+package com.github.nduyhai.spring5;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
